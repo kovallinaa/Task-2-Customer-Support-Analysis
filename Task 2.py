@@ -385,7 +385,7 @@ TOT_NUM_OUT_OF_BOUND AS(
    WHERE time_req_to_start > 45
    GROUP BY moderator)
 
-SELECT DISTINCT T.moderator, TN.TOT_NUM_START, ((OB.TOT_NUM_START_OUT/TN.TOT_NUM_START)*100) AS OUT_OF_5_RATE, TS.AVG_TIME_START, TS.QUART1_TIME_START, TS.MED_TIME_START, TS.QUART1_TIME_START, TS.MAX_TIME_START, WH.AVG_TIME_START_WH, WH.MED_TIME_START_WH, WH.MAX_TIME_START_WH, REP.AVG_TIME_START_REP, REP.MED_TIME_START_REP, REP.MAX_TIME_START_REP, T.team, T.shift
+SELECT DISTINCT T.moderator, TN.TOT_NUM_START, ((OB.TOT_NUM_START_OUT/TN.TOT_NUM_START)*100) AS OUT_OF_5_RATE, TS.AVG_TIME_START, TS.QUART1_TIME_START, TS.MED_TIME_START, TS.QUART3_TIME_START, TS.MAX_TIME_START, WH.AVG_TIME_START_WH, WH.MED_TIME_START_WH, WH.MAX_TIME_START_WH, REP.AVG_TIME_START_REP, REP.MED_TIME_START_REP, REP.MAX_TIME_START_REP, T.team, T.shift
 FROM TABLE_FOR_ANALYTICS AS T
 LEFT JOIN TIME_START AS TS 
 ON T.moderator = TS.moderator
@@ -459,6 +459,19 @@ MOD_TABLE = duckdb.query(query_to_info_by_mod).to_df()
 
 # MOD_TABLE
 # ТАБЛИЦЯ З СЕРЕДНЬОЮ КІЛЬКІСТЮ ЗАПИТІВ ДЛЯ МОДЕРАТОРА
+
+query_to_check_working_days="""
+WITH L AS (SELECT DISTINCT moderator, 
+FIRST_VALUE(CAST(start_time AS DATE)) OVER(PARTITION BY moderator
+                    ORDER BY CAST(start_time AS DATE)) AS START_DATE,
+LAST_VALUE(CAST(start_time AS DATE)) OVER(PARTITION BY moderator
+                    ORDER BY CAST(start_time AS DATE)
+                    ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS LAST_DATE               
+FROM TIME_DIFF)
+SELECT *
+FROM L
+WHERE LAST_DATE < '2020-11-22'
+"""
 query_to_connect_all_mod_info =""" 
 SELECT MOD_TABLE.*,START_PROCES_REQ_BY_MOD.*, SOLWING_PROBLEMS_BY_MOD.*
 FROM MOD_TABLE
@@ -466,8 +479,26 @@ LEFT JOIN START_PROCES_REQ_BY_MOD USING (moderator)
 LEFT JOIN SOLWING_PROBLEMS_BY_MOD USING (moderator)"""
 TOTAL_MOD_TABLE = duckdb.query(query_to_connect_all_mod_info).to_df()
 
-path_to_excel = r"Повний аналіз роботи служби підтримки.xlsx"
 
+# QRY ="""
+# WITH AFTER AS(
+# SELECT DISTINCT moderator
+# FROM TIME_DIFF
+# WHERE (CAST(start_time AS DATE) > '2020-11-22'))
+
+# SELECT TOTAL_MOD_TABLE.moderator, COALESCE(AFTER.moderator, 0)
+# FROM TOTAL_MOD_TABLE
+# LEFT JOIN AFTER
+# ON TOTAL_MOD_TABLE.moderator = AFTER.moderator
+# """
+
+
+moderators_to_exclude = [134, 110, 163, 114, 143, 128, 150, 129, 133, 171, 138, 161]
+REP_TOTAL_MOD_TABLE = TOTAL_MOD_TABLE[~TOTAL_MOD_TABLE["moderator"].isin(moderators_to_exclude)]
+REP_TOTAL_MOD_TABLE = REP_TOTAL_MOD_TABLE.drop(columns=['team_1', 'moderator_2', 'moderator_1','shift_1'])
+
+
+path_to_excel = r"Повний аналіз роботи служби підтримки.xlsx"
 with pd.ExcelWriter(path_to_excel, engine='openpyxl') as writer:
     GROW_REQ_SOLV_BY_DATE.to_excel(writer, sheet_name="Кількісьть запитів і розв'язань", index=False)
     TOT_NUM_REQ_AND_STARTS_BY_HOURS.to_excel(writer, sheet_name='Запити та обробка (год)', index=False)
@@ -476,3 +507,4 @@ with pd.ExcelWriter(path_to_excel, engine='openpyxl') as writer:
     START_PROCES_REQ_BY_MOD.to_excel(writer, sheet_name='Час обробки модератором', index=False)
     SOLWING_PROBLEMS_BY_MOD.to_excel(writer, sheet_name='Проблемні запити', index=False)
     MOD_TABLE.to_excel(writer, sheet_name='Середнє по модераторах', index=False)
+    REP_TOTAL_MOD_TABLE.to_excel(writer, sheet_name='Модератори репрезентативна', index=False)
